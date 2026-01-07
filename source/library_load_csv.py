@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 import pyodbc
 import sqlalchemy as sa
-from pathlib import Path
+import argparse
 
+from pathlib import Path
 from datetime import datetime
 
 # Create SQLAlchemty connection, quick and dirty version using a simple string and windows auth.
@@ -13,6 +14,9 @@ connection = engine.connect()
 
 # Declare variables & relative paths for consistency
 today = pd.Timestamp.today()
+script_dir = Path(__file__).parent
+book_path = script_dir / '..' / 'data' / '03_Library Systembook.csv'
+customer_path = script_dir / '..' / 'data' / '03_Library SystemCustomers.csv'
 
 def standardise_columns(dataframe):
     """
@@ -60,10 +64,6 @@ def format_names(dataframe, columns):
     return dataframe
 
 
-script_dir = Path(__file__).parent
-book_path = script_dir / '..' / 'data' / '03_Library Systembook.csv'
-customer_path = script_dir / '..' / 'data' / '03_Library SystemCustomers.csv'
-
 def date_validator(checkout_series, returned_series):
     """
     Date Validator returning a string classification
@@ -84,7 +84,8 @@ def date_validator(checkout_series, returned_series):
     ]
     print("Date validator applied")
     return np.select(date_checks, date_flags, default="Valid dates")
-    
+
+
 def checkout_duration(dataframe, start_date, end_date, result_col, conditional_col=None, condition=None ):
     if (conditional_col is not None) & (condition is not None):
         duration = np.where(
@@ -98,10 +99,24 @@ def checkout_duration(dataframe, start_date, end_date, result_col, conditional_c
     print(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
     return dataframe
 
-"""
-Clean and load the book CSV
-"""
+
+def write_table(dataframe, table_name, write_toggle):
+    if write_toggle == 1:
+        dataframe.to_sql(table_name, engine, if_exists='replace', index=False)
+        print(f"the table [{table_name}] has been written the SQL Server")
+    else:
+        return "No data has been saved"
+    
 def main():
+    # Argparse input for toggling the SQL Server write.
+    parser = argparse.ArgumentParser(prog = "LibraryCSV",
+                                     description = "Loads CSV data to the SQL Server")
+    parser.add_argument('-w', '--write', action='store_true', help="Writes the data to the SQL Server")
+    args = parser.parse_args()
+
+    """
+    Clean and load the book CSV
+    """
     # Read CSV
     books_df = pd.read_csv(book_path)
 
@@ -123,9 +138,10 @@ def main():
                                  'date_validity', 
                                  "Valid dates")
 
-    # Load the data
-    books_df.to_sql('books', engine, if_exists='replace', index=False)
+    # Display/Load the data
     print(books_df)
+    write_table(books_df, 'books', args.write)
+    
 
     """
     Clean and load the customer CSV
@@ -142,8 +158,9 @@ def main():
     customers_df = format_id(customers_df, ['customer_id'])
     customers_df = format_names(customers_df, ['customer_name'])
 
-    # Load the data
-    customers_df.to_sql('customers', engine, if_exists='replace', index=False)
+    # Display/Load the data
+    print(customers_df)
+    write_table(customers_df, 'customers', args.write)
 
 if __name__ == "__main__":
     main()
