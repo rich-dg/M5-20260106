@@ -31,7 +31,7 @@ def standardise_columns(dataframe):
 def clean_na(dataframe, columns):
     dataframe = dataframe.dropna(subset=columns)
 
-    print(f"Dropped NA values from {len(columns)} columns: {columns}")
+    print(f"Dropped NA values from {len(columns)} columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -39,7 +39,7 @@ def format_date(dataframe, columns):
     for col in columns:
         dataframe[col] = pd.to_datetime(dataframe[col].str.strip('"'), format = '%d/%m/%Y', errors='coerce')
 
-    print(f"Formated {len(columns)} date columns: {columns}")
+    print(f"Formated {len(columns)} date columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -47,7 +47,7 @@ def format_id(dataframe, columns):
     for col in columns:
         dataframe[col] = dataframe[col].astype(int)
 
-    print(f"Formated {len(columns)} integer id's: {columns}")
+    print(f"Formated {len(columns)} integer id's: {', '.join(columns)}")
     return dataframe
 
 
@@ -56,7 +56,7 @@ def format_names(dataframe, columns):
         dataframe[col] = dataframe[col].str.strip()\
                                        .str.title()
         
-    print(f"Formated {len(columns)} name columns: {columns}")
+    print(f"Formated {len(columns)} name columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -101,57 +101,49 @@ def checkout_duration(dataframe, start_date, end_date, result_col, conditional_c
 """
 Clean and load the book CSV
 """
+def main():
+    # Read CSV
+    books_df = pd.read_csv(book_path)
 
-# Read CSV
-books_df = pd.read_csv(book_path)
+    # Standardise column headers
+    books_df.columns = standardise_columns(books_df)
 
-# Standardise column headers
-books_df.columns = standardise_columns(books_df)
+    # Clean data
+    books_df = clean_na(books_df, ['id', 'customer_id'])
+    books_df = format_id(books_df, ['id', 'customer_id'])
+    books_df = format_names(books_df, ['books'])
+    books_df = format_date(books_df,['book_checkout', 'book_returned'])
 
-# Clean data
-books_df = clean_na(books_df, ['id', 'customer_id'])
+    # Enrich Data
+    books_df['date_validity'] = date_validator(books_df['book_checkout'], books_df['book_returned'])
+    books_df = checkout_duration(books_df, 
+                                 'book_checkout', 
+                                 'book_returned', 
+                                 'checkout_duration', 
+                                 'date_validity', 
+                                 "Valid dates")
 
-books_df = format_id(books_df, ['id', 'customer_id'])
+    # Load the data
+    books_df.to_sql('books', engine, if_exists='replace', index=False)
+    print(books_df)
 
-books_df = format_names(books_df, ['books'])
+    """
+    Clean and load the customer CSV
+    """
 
-books_df = format_date(books_df,['book_checkout', 'book_returned'])
+    # Read CSV
+    customers_df = pd.read_csv(customer_path)
 
-# Enrich Data
-books_df['date_validity'] = date_validator(books_df['book_checkout'], books_df['book_returned'])
+    # Standardise column headers
+    customers_df.columns = standardise_columns(customers_df)
 
-books_df = checkout_duration(books_df, 
-                             'book_checkout', 
-                             'book_returned', 
-                             'checkout_duration', 
-                             'date_validity', 
-                             "Valid dates")
+    # Clean data
+    customers_df = clean_na(customers_df, ['customer_id'])
+    customers_df = format_id(customers_df, ['customer_id'])
+    customers_df = format_names(customers_df, ['customer_name'])
 
+    # Load the data
+    customers_df.to_sql('customers', engine, if_exists='replace', index=False)
 
-# Load the data
-books_df.to_sql('books', engine, if_exists='replace', index=False)
-print(books_df)
-
-"""
-Clean and load the customer CSV
-"""
-
-# Read CSV
-customers_df = pd.read_csv(customer_path)
-
-# Standardise column headers
-customers_df.columns = standardise_columns(customers_df)
-
-# Clean data
-customers_df = clean_na(customers_df, 
-                        ['customer_id'])
-
-customers_df = format_id(customers_df, 
-                         ['customer_id'])
-
-customers_df = format_names(customers_df, 
-                            ['customer_name'])
-
-# Load the data
-customers_df.to_sql('customers', engine, if_exists='replace', index=False)
-
+if __name__ == "__main__":
+    main()
