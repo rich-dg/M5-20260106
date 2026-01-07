@@ -12,12 +12,91 @@ engine = sa.create_engine('mssql+pyodbc://localhost/QA_Library?driver=ODBC+Drive
 connection = engine.connect()
 
 # Declare variables & relative paths for consistency
-today = pd.Timestamp(datetime.today())
+today = pd.Timestamp.today()
+
+def standardise_columns(dataframe):
+    """
+    Cleans and standardises column names to snake_case
+    
+    Returns column names, not a dataframe
+    """
+
+    dataframe.columns = dataframe.columns.str.strip()\
+                           .str.lower()\
+                           .str.replace(" ", "_", regex=False)
+
+    print(f"Formated {len(dataframe.columns)} column headers.")
+    return dataframe.columns
+
+def clean_na(dataframe, columns):
+    dataframe = dataframe.dropna(subset=columns)
+
+    print(f"Dropped NA values from {len(columns)} columns: {columns}")
+    return dataframe
+
+
+def format_date(dataframe, columns):
+    for col in columns:
+        dataframe[col] = pd.to_datetime(dataframe[col].str.strip('"'), format = '%d/%m/%Y', errors='coerce')
+
+    print(f"Formated {len(columns)} date columns: {columns}")
+    return dataframe
+
+
+def format_id(dataframe, columns):
+    for col in columns:
+        dataframe[col] = dataframe[col].astype(int)
+
+    print(f"Formated {len(columns)} integer id's: {columns}")
+    return dataframe
+
+
+def format_names(dataframe, columns):
+    for col in columns:
+        dataframe[col] = dataframe[col].str.strip()\
+                                       .str.title()
+        
+    print(f"Formated {len(columns)} name columns: {columns}")
+    return dataframe
+
 
 script_dir = Path(__file__).parent
 book_path = script_dir / '..' / 'data' / '03_Library Systembook.csv'
 customer_path = script_dir / '..' / 'data' / '03_Library SystemCustomers.csv'
 
+def date_validator(checkout_series, returned_series):
+    """
+    Date Validator returning a string classification
+    """
+    
+    today = pd.Timestamp.today()
+    
+    date_checks = [
+        checkout_series.isna() | returned_series.isna(),
+        (checkout_series > today) | (returned_series > today),
+        checkout_series > returned_series
+    ]
+    
+    date_flags = [
+        "Invalid dates",
+        "Future dates",
+        "Checkout preceding return"
+    ]
+    print("Date validator applied")
+    return np.select(date_checks, date_flags, default="Valid dates")
+    
+def checkout_duration(dataframe, start_date, end_date, result_col, conditional_col=None, condition=None ):
+    if (conditional_col is not None) & (condition is not None):
+        duration = np.where(
+            dataframe[conditional_col] == condition,
+            (dataframe[end_date] - dataframe[start_date]).dt.days,
+            pd.NaT
+        )
+
+    dataframe[result_col] = duration
+
+    print(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
+    return dataframe
 
 """
 Clean and load the book CSV
@@ -27,48 +106,31 @@ Clean and load the book CSV
 books_df = pd.read_csv(book_path)
 
 # Standardise column headers
-books_df.columns = books_df.columns.str.title()
+books_df.columns = standardise_columns(books_df)
 
-# Drops NaN records
-books_df = books_df.dropna(subset=['Id', 'Books'])
+# Clean data
+books_df = clean_na(books_df, ['id', 'customer_id'])
 
-# Convert Id fields to integers
-for col in ['Id', 'Customer Id']:
-    books_df[col] = books_df[col].astype(int)
+books_df = format_id(books_df, ['id', 'customer_id'])
 
-# Capitalisew book titles
-books_df['Books'] = books_df['Books'].str.title()
+books_df = format_names(books_df, ['books'])
 
-# Standardise dates
-for col in ['Book Checkout', 'Book Returned']:
-    books_df[col] = pd.to_datetime(books_df[col].str.strip('"'), format = '%d/%m/%Y', errors='coerce')
+books_df = format_date(books_df,['book_checkout', 'book_returned'])
 
-# Date validation
-date_checks = [
-    books_df['Book Checkout'].isna() | books_df['Book Returned'].isna(),
-    (books_df['Book Checkout'] > today) | (books_df['Book Returned'] > today),
-    books_df['Book Checkout'] > books_df['Book Returned']
-]
+# Enrich Data
+books_df['date_validity'] = date_validator(books_df['book_checkout'], books_df['book_returned'])
 
-date_flags = [
-    'Invalid Dates',
-    'Future Dates',
-    'Checked Prceeding Return'
-]
+books_df = checkout_duration(books_df, 
+                             'book_checkout', 
+                             'book_returned', 
+                             'checkout_duration', 
+                             'date_validity', 
+                             "Valid dates")
 
-books_df['Date Validity'] = np.select(date_checks, date_flags, default='Valid Date')
-
-
-# Calculate valid lending durations
-books_df['Checkout Duration'] = np.where(
-    books_df['Date Validity'] == 'Valid Date',
-    (books_df['Book Returned'] - books_df['Book Checkout']).dt.days,
-    None
-)
 
 # Load the data
 books_df.to_sql('books', engine, if_exists='replace', index=False)
-
+print(books_df)
 
 """
 Clean and load the customer CSV
@@ -78,16 +140,17 @@ Clean and load the customer CSV
 customers_df = pd.read_csv(customer_path)
 
 # Standardise column headers
-customers_df.columns = customers_df.columns.str.title()
+customers_df.columns = standardise_columns(customers_df)
 
-# Drops NaN records
-customers_df = customers_df.dropna()
+# Clean data
+customers_df = clean_na(customers_df, 
+                        ['customer_id'])
 
-# Convert Id fields to integers
-customers_df['Customer Id'] = customers_df['Customer Id'].astype(int)
+customers_df = format_id(customers_df, 
+                         ['customer_id'])
 
-# Standardise capitalisation
-customers_df['Customer Name'] = customers_df['Customer Name'].str.title()
+customers_df = format_names(customers_df, 
+                            ['customer_name'])
 
 # Load the data
 customers_df.to_sql('customers', engine, if_exists='replace', index=False)
