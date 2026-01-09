@@ -20,6 +20,18 @@ book_path = script_dir / '..' / 'data' / '03_Library Systembook.csv'
 customer_path = script_dir / '..' / 'data' / '03_Library SystemCustomers.csv'
 
 # Set up logging function
+logging.addLevelName(25, "METRIC")
+
+def metric(self, message, *args, **kwargs):
+    """Metric logging"""
+    if self.isEnabledFor(25):
+        self._log(25, message, args, **kwargs)
+
+
+logging.Logger.metric = metric
+
+logger = logging.getLogger(__name__)
+
 def setup_logging(log_dir):
     """Configure logging to file and console"""
     log_file = Path(log_dir) / f'library_etl_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -50,21 +62,23 @@ def standardise_columns(dataframe):
                            .str.lower()\
                            .str.replace(" ", "_", regex=False)
 
-    logging.info(f"Formated {len(dataframe.columns)} column headers.")
+    logger.info(f"Formated {len(dataframe.columns)} column headers.")
     return dataframe.columns
 
 def clean_na(dataframe, columns):
     dataframe = dataframe.dropna(subset=columns)
 
-    logging.info(f"Dropped NA values from {len(columns)} columns: {', '.join(columns)}")
+    logger.info(f"Dropped NA values from {len(columns)} columns: {', '.join(columns)}")
     return dataframe
 
 
 def format_date(dataframe, columns):
     for col in columns:
+        before_format = dataframe[col].isnull().sum()
         dataframe[col] = pd.to_datetime(dataframe[col].str.strip('"\'',), format = '%d/%m/%Y', errors='coerce')
-
-    logging.info(f"Formated {len(columns)} date columns: {', '.join(columns)}")
+        after_format = dataframe[col].isnull().sum()
+        format_fails = after_format - before_format
+        logger.metric(f"Formated {col} date column: {format_fails} invalid dates")
     return dataframe
 
 
@@ -72,7 +86,7 @@ def format_id(dataframe, columns):
     for col in columns:
         dataframe[col] = dataframe[col].astype(int)
 
-    logging.info(f"Formated {len(columns)} integer id's: {', '.join(columns)}")
+    logger.info(f"Formated {len(columns)} integer id's: {', '.join(columns)}")
     return dataframe
 
 
@@ -81,7 +95,7 @@ def format_names(dataframe, columns):
         dataframe[col] = dataframe[col].str.strip()\
                                        .str.title()
         
-    logging.info(f"Formated {len(columns)} name columns: {', '.join(columns)}")
+    logger.info(f"Formated {len(columns)} name columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -103,7 +117,7 @@ def date_validator(checkout_series, returned_series):
         "Future dates",
         "Checkout preceding return"
     ]
-    logging.info("Date validator applied")
+    logger.info("Date validator applied")
     return np.select(date_checks, date_flags, default="Valid dates")
 
 
@@ -117,7 +131,7 @@ def checkout_duration(dataframe, start_date, end_date, result_col, conditional_c
 
     dataframe[result_col] = duration
 
-    logging.info(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
+    logger.info(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
     return dataframe
 
 
@@ -147,7 +161,7 @@ def main():
     Clean and load the book CSV
     """
     # Read CSV
-    logging.info("Beginning book CSV processing.")
+    logger.info("Beginning book CSV processing.")
     books_df = pd.read_csv(book_path)
 
     # Standardise column headers
@@ -178,7 +192,7 @@ def main():
     """
 
     # Read CSV
-    logging.info("Beginning customer CSV processing.")
+    logger.info("Beginning customer CSV processing.")
     customers_df = pd.read_csv(customer_path)
 
     # Standardise column headers
