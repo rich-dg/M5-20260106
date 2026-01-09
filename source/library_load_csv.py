@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-import pyodbc
-import sqlalchemy as sa
+import logging
+#import pyodbc
+#import sqlalchemy as sa
 import argparse
 
 from pathlib import Path
@@ -9,14 +10,34 @@ from datetime import datetime
 
 # Create SQLAlchemty connection, quick and dirty version using a simple string and windows auth.
 
-engine = sa.create_engine('mssql+pyodbc://localhost/QA_Library?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes')
-connection = engine.connect()
+#engine = sa.create_engine('mssql+pyodbc://localhost/QA_Library?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes')
+#connection = engine.connect()
 
 # Declare variables & relative paths for consistency
 today = pd.Timestamp.today()
 script_dir = Path(__file__).parent
 book_path = script_dir / '..' / 'data' / '03_Library Systembook.csv'
 customer_path = script_dir / '..' / 'data' / '03_Library SystemCustomers.csv'
+
+# Set up logging function
+def setup_logging(log_dir):
+    """Configure logging to file and console"""
+    log_file = Path(log_dir) / f'library_etl_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+    
+
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),  # Write to file
+            logging.StreamHandler()          # Also print to console
+        ]
+    )
+    
+    logging.info(f"Logging to: {log_file}")
+    return log_file
 
 def standardise_columns(dataframe):
     """
@@ -29,21 +50,21 @@ def standardise_columns(dataframe):
                            .str.lower()\
                            .str.replace(" ", "_", regex=False)
 
-    print(f"Formated {len(dataframe.columns)} column headers.")
+    logging.info(f"Formated {len(dataframe.columns)} column headers.")
     return dataframe.columns
 
 def clean_na(dataframe, columns):
     dataframe = dataframe.dropna(subset=columns)
 
-    print(f"Dropped NA values from {len(columns)} columns: {', '.join(columns)}")
+    logging.info(f"Dropped NA values from {len(columns)} columns: {', '.join(columns)}")
     return dataframe
 
 
 def format_date(dataframe, columns):
     for col in columns:
-        dataframe[col] = pd.to_datetime(dataframe[col].str.strip('"'), format = '%d/%m/%Y', errors='coerce')
+        dataframe[col] = pd.to_datetime(dataframe[col].str.strip('"\'',), format = '%d/%m/%Y', errors='coerce')
 
-    print(f"Formated {len(columns)} date columns: {', '.join(columns)}")
+    logging.info(f"Formated {len(columns)} date columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -51,7 +72,7 @@ def format_id(dataframe, columns):
     for col in columns:
         dataframe[col] = dataframe[col].astype(int)
 
-    print(f"Formated {len(columns)} integer id's: {', '.join(columns)}")
+    logging.info(f"Formated {len(columns)} integer id's: {', '.join(columns)}")
     return dataframe
 
 
@@ -60,7 +81,7 @@ def format_names(dataframe, columns):
         dataframe[col] = dataframe[col].str.strip()\
                                        .str.title()
         
-    print(f"Formated {len(columns)} name columns: {', '.join(columns)}")
+    logging.info(f"Formated {len(columns)} name columns: {', '.join(columns)}")
     return dataframe
 
 
@@ -82,7 +103,7 @@ def date_validator(checkout_series, returned_series):
         "Future dates",
         "Checkout preceding return"
     ]
-    print("Date validator applied")
+    logging.info("Date validator applied")
     return np.select(date_checks, date_flags, default="Valid dates")
 
 
@@ -96,14 +117,17 @@ def checkout_duration(dataframe, start_date, end_date, result_col, conditional_c
 
     dataframe[result_col] = duration
 
-    print(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
+    logging.info(f"Added [{result_col}] column: ({end_date} - {start_date}) where dates are valid")
     return dataframe
 
 
-def write_table(dataframe, table_name, write_toggle):
-    if write_toggle == 1:
-        dataframe.to_sql(table_name, engine, if_exists='replace', index=False)
-        print(f"the table [{table_name}] has been written the SQL Server")
+def write_table(dataframe, table_name, writeSQL, writeCSV):
+#    if writeSQL == 1:
+#        dataframe.to_sql(table_name, engine, if_exists='replace', index=False)
+#        logging.info(f"the table [{table_name}] has been written the SQL Server")
+    if writeCSV == 1:
+        dataframe.to_csv(f"/library_data/{table_name}.csv")
+        logging.info(f"the table [{table_name}] has been written to a CSV")
     else:
         return "No data has been saved"
     
@@ -111,13 +135,19 @@ def main():
     # Argparse input for toggling the SQL Server write.
     parser = argparse.ArgumentParser(prog = "LibraryCSV",
                                      description = "Loads CSV data to the SQL Server")
-    parser.add_argument('-w', '--write', action='store_true', help="Writes the data to the SQL Server")
+    parser.add_argument('-wsql', '--writeSQL', action='store_true', help="Writes the data to the SQL Server")
+    parser.add_argument('-wcsv', '--writeCSV', action='store_true', help="Writes the data to a CSV")
     args = parser.parse_args()
+
+
+    # Set up logging
+    log_file = setup_logging('/library_data/logs')
 
     """
     Clean and load the book CSV
     """
     # Read CSV
+    logging.info("Beginning book CSV processing.")
     books_df = pd.read_csv(book_path)
 
     # Standardise column headers
@@ -139,8 +169,8 @@ def main():
                                  "Valid dates")
 
     # Display/Load the data
-    print(books_df)
-    write_table(books_df, 'books', args.write)
+    #print(books_df)
+    write_table(books_df, 'books', args.writeSQL, args.writeCSV)
     
 
     """
@@ -148,6 +178,7 @@ def main():
     """
 
     # Read CSV
+    logging.info("Beginning customer CSV processing.")
     customers_df = pd.read_csv(customer_path)
 
     # Standardise column headers
@@ -159,8 +190,8 @@ def main():
     customers_df = format_names(customers_df, ['customer_name'])
 
     # Display/Load the data
-    print(customers_df)
-    write_table(customers_df, 'customers', args.write)
+    #print(customers_df)
+    write_table(customers_df, 'customers', args.writeSQL, args.writeCSV)
 
 if __name__ == "__main__":
     main()
