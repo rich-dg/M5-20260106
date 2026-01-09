@@ -1,0 +1,27 @@
+
+services:
+  etl:
+    build:
+      context: .
+      dockerfile: Dockerfile.etl
+    image: library-etl
+    container_name: library_etl
+    volumes:
+      - library_data:/library_data
+
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: library-api
+    container_name: library_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - library_data:/library_data:ro
+    restart: unless-stopped
+
+  
+volumes:
+  library_data:

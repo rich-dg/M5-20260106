@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 def setup_logging(log_dir):
     """Configure logging to file and console"""
-    log_file = Path(log_dir) / f'library_etl_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+    log_file = Path(log_dir) / f'library_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
     
 
     Path(log_dir).mkdir(parents=True, exist_ok=True)
@@ -136,11 +136,11 @@ def checkout_duration(dataframe, start_date, end_date, result_col, conditional_c
 
 
 def write_table(dataframe, table_name, writeSQL, writeCSV):
-#    if writeSQL == 1:
+#    if writeSQL:
 #        dataframe.to_sql(table_name, engine, if_exists='replace', index=False)
 #        logging.info(f"the table [{table_name}] has been written the SQL Server")
-    if writeCSV == 1:
-        dataframe.to_csv(f"/library_data/{table_name}.csv")
+    if writeCSV:
+        dataframe.to_csv(f"/library_data/{table_name}.csv", index=False)
         logging.info(f"the table [{table_name}] has been written to a CSV")
     else:
         return "No data has been saved"
